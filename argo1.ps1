@@ -4,7 +4,7 @@
 
 # --- KONFIGURATION ---
 $deployment = "meine-test-app"
-$appK8sName = "test"
+$appK8sName = "test1"
 $runs = 5
 
 # --- METRIKEN-SPEICHER ---
