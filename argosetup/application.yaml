@@ -8,7 +8,7 @@ spec:
   source:
     repoURL: 'https://github.com/adti02/Bachelorarbeit.git'
     targetRevision: HEAD
-    path: apps/ 
+    path: argosetup/ 
   destination:
     server: 'https://kubernetes.default.svc'
     namespace: default
