@@ -1,3 +1,5 @@
+
+cat argo2.ps1 | powershell
 # 1. Zeitstempel VOR dem Push nehmen
 $start_push = Get-Date
 
