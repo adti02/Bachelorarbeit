@@ -5,3 +5,5 @@ $start_push = Get-Date
 git add .
 git commit -m "Messung: $(Get-Date)"
 git push origin main
+
+cat argo2.ps1 | powershell
