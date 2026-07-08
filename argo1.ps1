@@ -24,7 +24,7 @@ Write-Host "====================================================================
 for ($i = 1; $i -le $runs; $i++) {
     Write-Host "`n--- Start Durchgang $i von $runs ---" -ForegroundColor Cyan
     
-    # 1. T0 einfangen und Drift auslösen
+    # 1. T0 einfangen und Drift ausloesen
     $T0_Obj = [DateTimeOffset]::UtcNow
     kubectl scale deployment/$deployment --replicas=5 -n $namespace | Out-Null
     Write-Host "Drift auf 5 Replicas ausgeloest..." -ForegroundColor Gray
@@ -47,7 +47,7 @@ for ($i = 1; $i -le $runs; $i++) {
         }
     }
     
-    # 3. Warten, bis das Gesamtsystem in Argo CD wieder komplett grün (Healthy & Synced) ist
+    # 3. Warten, bis das Gesamtsystem in Argo CD wieder komplett gruen (Healthy & Synced) ist
     Write-Host "Argo regelt ab. Warte auf vollstaendige Genesung in der UI..." -ForegroundColor Gray
     do {
         Start-Sleep -Milliseconds 500
