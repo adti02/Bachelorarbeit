@@ -19,13 +19,13 @@ $controller = "flux"   # nur zur Dokumentation: "argo" oder "flux"
 $deployment = "meine-test-app"
 $namespace = "default"
 
-$runs = 5
+$runs = 10
 
 $desiredReplicas = 3
 $driftReplicas = 5
 
 $checkIntervalMs = 100
-$cooldownSeconds = 120
+$cooldownSeconds = 60
 
 
 
