@@ -4,7 +4,7 @@ metadata:
   name: meine-test-app
   namespace: default
 spec:
-  replicas: 5 #31
+  replicas: 1 #33
   selector:
     matchLabels:
       app: web
