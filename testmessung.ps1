@@ -14,7 +14,7 @@
 
 # ================= KONFIGURATION ==============================================
 
-$controller = "flux"   # nur zur Dokumentation: "argo" oder "flux"
+$controller = "argo"   # nur zur Dokumentation: "argo" oder "flux"
 
 $deployment = "meine-test-app"
 $namespace = "default"
