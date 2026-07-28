@@ -1,16 +1,20 @@
 # ==============================================================================
-# GITOPS DRIFT MESSUNG - FLUX / ARGO VERGLEICH
+# GITOPS DRIFT MESSUNG - ARGO / FLUX VERGLEICH
 # MTTD + MTTR
 #
 # MTTD:
-# Zeitpunkt Drift erzeugt bis Controller beginnt zu reparieren
+# Drift erzeugt bis Controller beginnt zu reparieren
 #
 # MTTR:
-# Zeitpunkt Drift erzeugt bis Soll-Zustand wiederhergestellt ist
+# Drift erzeugt bis Sollzustand wiederhergestellt ist
+#
+# Messung über Kubernetes Zustand (controller-unabhängig)
 # ==============================================================================
 
 
 # ================= KONFIGURATION ==============================================
+
+$controller = "argo"   # nur zur Dokumentation: "argo" oder "flux"
 
 $deployment = "meine-test-app"
 $namespace = "default"
@@ -20,7 +24,7 @@ $runs = 5
 $desiredReplicas = 3
 $driftReplicas = 5
 
-$checkIntervalMs = 500
+$checkIntervalMs = 100
 $cooldownSeconds = 90
 
 
@@ -35,12 +39,38 @@ $mttrList = @()
 Clear-Host
 
 Write-Host "============================================================" -ForegroundColor Yellow
-Write-Host " GITOPS DRIFT MESSUNG - MTTD / MTTR" -ForegroundColor Yellow
+Write-Host " GITOPS DRIFT MESSUNG" -ForegroundColor Yellow
+Write-Host " Controller: $controller" -ForegroundColor Yellow
 Write-Host " Deployment: $deployment" -ForegroundColor Yellow
 Write-Host " Namespace: $namespace" -ForegroundColor Yellow
 Write-Host " Durchläufe: $runs" -ForegroundColor Yellow
 Write-Host "============================================================"
 
+
+
+# ================= FUNKTIONEN =================================================
+
+
+function Get-Replicas {
+
+    return kubectl get deployment/$deployment `
+        -n $namespace `
+        -o jsonpath='{.spec.replicas}' 2>$null
+
+}
+
+
+function Get-AvailableReplicas {
+
+    return kubectl get deployment/$deployment `
+        -n $namespace `
+        -o jsonpath='{.status.availableReplicas}' 2>$null
+
+}
+
+
+
+# ================= MESSUNG ====================================================
 
 
 for ($i = 1; $i -le $runs; $i++) {
@@ -52,28 +82,46 @@ for ($i = 1; $i -le $runs; $i++) {
 
 
     # --------------------------------------------------------------------------
-    # Sicherstellen: Ausgangszustand
+    # Ausgangszustand herstellen
     # --------------------------------------------------------------------------
 
-    $replicas = kubectl get deployment/$deployment `
-        -n $namespace `
-        -o jsonpath='{.spec.replicas}' 2>$null
+
+    kubectl scale deployment/$deployment `
+        --replicas=$desiredReplicas `
+        -n $namespace | Out-Null
 
 
-    while ($replicas -ne "$desiredReplicas") {
+    Write-Host "Warte auf Ausgangszustand..."
 
-        Start-Sleep -Milliseconds $checkIntervalMs
 
-        $replicas = kubectl get deployment/$deployment `
-            -n $namespace `
-            -o jsonpath='{.spec.replicas}' 2>$null
+    while ($true) {
+
+        $replicas = Get-Replicas
+        $available = Get-AvailableReplicas
+
+
+        if (
+            ($replicas -eq "$desiredReplicas") -and
+            ($available -eq "$desiredReplicas")
+        ) {
+            break
+        }
+
+
+        Start-Sleep -Milliseconds 500
+
     }
+
+
+
+    Start-Sleep -Seconds 5
 
 
 
     # --------------------------------------------------------------------------
     # Drift erzeugen
     # --------------------------------------------------------------------------
+
 
     $T0 = [DateTimeOffset]::UtcNow
 
@@ -83,14 +131,15 @@ for ($i = 1; $i -le $runs; $i++) {
         -n $namespace | Out-Null
 
 
-    Write-Host "Drift erzeugt: replicas=$driftReplicas"
+    Write-Host "Drift erzeugt: $desiredReplicas -> $driftReplicas"
 
 
 
     # --------------------------------------------------------------------------
-    # MTTD:
-    # Warten bis Reparatur beginnt
+    # MTTD
+    # Warten bis Controller beginnt zu reparieren
     # --------------------------------------------------------------------------
+
 
     $detected = $false
 
@@ -101,18 +150,20 @@ for ($i = 1; $i -le $runs; $i++) {
         Start-Sleep -Milliseconds $checkIntervalMs
 
 
-        $replicas = kubectl get deployment/$deployment `
-            -n $namespace `
-            -o jsonpath='{.spec.replicas}' 2>$null
+        $replicas = Get-Replicas
 
 
 
-        if ($replicas -ne "$driftReplicas") {
+        if (
+            $replicas -and
+            ([int]$replicas -lt $driftReplicas)
+        ) {
 
 
-            $T_detect = [DateTimeOffset]::UtcNow
+            $Tdetect = [DateTimeOffset]::UtcNow
 
             $detected = $true
+
 
         }
 
@@ -120,10 +171,15 @@ for ($i = 1; $i -le $runs; $i++) {
 
 
 
+    Write-Host "Reparatur gestartet"
+
+
+
     # --------------------------------------------------------------------------
-    # MTTR:
-    # Warten bis Soll-Zustand erreicht
+    # MTTR
+    # Warten bis vollständig wiederhergestellt
     # --------------------------------------------------------------------------
+
 
     $recovered = $false
 
@@ -134,16 +190,19 @@ for ($i = 1; $i -le $runs; $i++) {
         Start-Sleep -Milliseconds $checkIntervalMs
 
 
-        $replicas = kubectl get deployment/$deployment `
-            -n $namespace `
-            -o jsonpath='{.spec.replicas}' 2>$null
+        $replicas = Get-Replicas
+
+        $available = Get-AvailableReplicas
 
 
 
-        if ($replicas -eq "$desiredReplicas") {
+        if (
+            ($replicas -eq "$desiredReplicas") -and
+            ($available -eq "$desiredReplicas")
+        ) {
 
 
-            $T_finish = [DateTimeOffset]::UtcNow
+            $Tfinish = [DateTimeOffset]::UtcNow
 
             $recovered = $true
 
@@ -157,8 +216,9 @@ for ($i = 1; $i -le $runs; $i++) {
     # Berechnung
     # --------------------------------------------------------------------------
 
-    $mttd = ($T_detect - $T0).TotalMilliseconds
-    $mttr = ($T_finish - $T0).TotalMilliseconds
+
+    $mttd = ($Tdetect - $T0).TotalSeconds
+    $mttr = ($Tfinish - $T0).TotalSeconds
 
 
     $mttdList += $mttd
@@ -167,14 +227,17 @@ for ($i = 1; $i -le $runs; $i++) {
 
 
     Write-Host ""
-    Write-Host "MTTD: $([math]::Round($mttd / 1000,2)) Sekunden"
-    Write-Host "MTTR: $([math]::Round($mttr / 1000,2)) Sekunden"
+    Write-Host "MTTD: $([math]::Round($mttd,3)) Sekunden"
+    Write-Host "MTTR: $([math]::Round($mttr,3)) Sekunden"
 
 
 
     if ($i -lt $runs) {
 
-        Write-Host "Abkühlphase $cooldownSeconds Sekunden..."
+
+        Write-Host ""
+        Write-Host "Cooldown $cooldownSeconds Sekunden..." -ForegroundColor Gray
+
 
         Start-Sleep -Seconds $cooldownSeconds
 
@@ -187,8 +250,8 @@ for ($i = 1; $i -le $runs; $i++) {
 # ================= AUSWERTUNG =================================================
 
 
-$avgMttd = (($mttdList | Measure-Object -Average).Average) / 1000
-$avgMttr = (($mttrList | Measure-Object -Average).Average) / 1000
+$avgMttd = ($mttdList | Measure-Object -Average).Average
+$avgMttr = ($mttrList | Measure-Object -Average).Average
 
 
 
@@ -197,9 +260,12 @@ Write-Host "============================================================" -Foreg
 Write-Host " ERGEBNIS" -ForegroundColor Yellow
 Write-Host "============================================================"
 
+Write-Host "Controller: $controller"
 Write-Host "Durchläufe: $runs"
-Write-Host "Durchschnittliche MTTD: $([math]::Round($avgMttd,2)) Sekunden"
-Write-Host "Durchschnittliche MTTR: $([math]::Round($avgMttr,2)) Sekunden"
+
+Write-Host ""
+Write-Host "Durchschnittliche MTTD: $([math]::Round($avgMttd,3)) Sekunden"
+Write-Host "Durchschnittliche MTTR: $([math]::Round($avgMttr,3)) Sekunden"
 
 Write-Host ""
 Write-Host "Einzelwerte:"
@@ -207,7 +273,7 @@ Write-Host ""
 
 for ($i = 0; $i -lt $runs; $i++) {
 
-    Write-Host "Run $($i+1): MTTD=$([math]::Round($mttdList[$i]/1000,2))s | MTTR=$([math]::Round($mttrList[$i]/1000,2))s"
+    Write-Host "Run $($i+1): MTTD=$([math]::Round($mttdList[$i],3))s | MTTR=$([math]::Round($mttrList[$i],3))s"
 
 }
 
